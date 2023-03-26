@@ -1,0 +1,90 @@
+name: ssppp
+
+on:
+  workflow_dispatch:
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+        check-latest: true
+
+    - name: debug
+      run: |
+        printenv
+      shell: bash
+
+    - name: Checkout Code
+      uses: actions/checkout@main
+
+    # - name: Update Geodat
+    #   id: update
+    #   uses: nick-fields/retry@v2
+    #   with:
+    #     timeout_minutes: 60
+    #     retry_wait_seconds: 60
+    #     max_attempts: 60
+    #     command: |
+    #       cd ${GITHUB_WORKSPACE}
+    #       [ -d 'resources' ] || mkdir resources
+    #       LIST=('geoip geoip geoip' 'domain-list-community dlc geosite')
+    #       for i in "${LIST[@]}"
+    #       do
+    #         INFO=($(echo $i | awk 'BEGIN{FS=" ";OFS=" "} {print $1,$2,$3}'))
+    #         FILE_NAME="${INFO[2]}.dat"
+    #         echo -e "Verifying HASH key..."
+    #         HASH="$(curl -sL "https://raw.githubusercontent.com/v2fly/${INFO[0]}/release/${INFO[1]}.dat.sha256sum" | awk -F ' ' '{print $1}')"
+    #         if [ -s "./resources/${FILE_NAME}" ] && [ "$(sha256sum "./resources/${FILE_NAME}" | awk -F ' ' '{print $1}')" == "${HASH}" ]; then
+    #             continue
+    #         else
+    #             echo -e "Downloading https://raw.githubusercontent.com/v2fly/${INFO[0]}/release/${INFO[1]}.dat..."
+    #             curl -L "https://raw.githubusercontent.com/v2fly/${INFO[0]}/release/${INFO[1]}.dat" -o ./resources/${FILE_NAME}
+    #             echo -e "Verifying HASH key..."
+    #             [ "$(sha256sum "./resources/${FILE_NAME}" | awk -F ' ' '{print $1}')" == "${HASH}" ] || { echo -e "The HASH key of ${FILE_NAME} does not match cloud one."; exit 1; }
+    #             echo "unhit=true" >> $GITHUB_OUTPUT
+    #         fi
+    #       done 
+
+    - name: Replace Custom to Commit ID
+      if: ( !cancelled() )
+      run: |
+        ID=$(git rev-parse --short ${{ github.sha }})
+        if [ "${{ github.event_name }}" == 'pull_request' ]
+        then
+          ID=$(git rev-parse --short ${{ github.event.pull_request.head.sha }})
+        fi
+        sed -i '/build/ s/Custom/'$ID'/' ./core/core.go
+      shell: bash
+
+    - name: build SsPpp
+      if: ( !cancelled() )
+      id: build
+      run: |
+        find ${GITHUB_WORKSPACE} -type f -name "*.go"|xargs sed -i "s/Xray/SsPpp/g"
+        go build -o ${GITHUB_WORKSPACE}/ssppp -trimpath -ldflags "-s -w -buildid=" ./main
+        chmod +x ssppp
+        ${GITHUB_WORKSPACE}/ssppp --version
+      shell: bash
+        
+    - uses: mr-smithers-excellent/docker-build-push@v5
+      name: Build & push Docker image
+      with:
+        image: zxing/ssppp
+        tags: latest,v2,v2.${{ github.run_id }}
+        addLatest: true
+        addTimestamp: true
+        registry: docker.io
+        dockerfile: Dockerfile.S5
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Delete Workflow Runs
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        retain_days: 1
+        keep_minimum_runs: 8
