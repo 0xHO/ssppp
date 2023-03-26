@@ -1,0 +1,13 @@
+version: '2.3'
+
+services:
+  searxtest:
+    container_name: ssppp
+    restart: always
+    build:
+      context: ./
+      dockerfile: Dockerfile.S5
+    ports:
+      - 443:443
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
